@@ -11,12 +11,12 @@
 
 ### Step 3: Environment Variables
 Go to **Variables** tab on Railway and configure:
-- `GROQ_API_KEY`: Your real Groq API key
+- `GOOGLE_API_KEY`: Your Google Gemini API key (get it from [aistudio.google.com](https://aistudio.google.com/app/apikey))
 - `WOLFRAM_APP_ID`: Your WolframAlpha App ID
 - `BREVO_SMTP_KEY`: Your Brevo SMTP API Key
 - `BREVO_SENDER_EMAIL`: Your configured Brevo verified email address
 - `OPENFDA_API_KEY`: (Optional) Your OpenFDA key
-- `JWT_SECRET`: Generate a secure string (e.g. `openssl rand -hex 32`)
+- `JWT_SECRET`: Use the value already set in your `.env` file
 - `DATABASE_URL`: `sqlite:///./medlinka.db`
 
 ### Step 4: Setup Procfile
@@ -34,3 +34,10 @@ In your `MedLinka.html` frontend file:
    To:
    `const BASE_URL = "https://your-railway-app-url.up.railway.app/api";`
 2. Save, then open `MedLinka.html` directly in the browser, or host it on GitHub Pages.
+
+### AI Provider
+This app uses **Google Gemini 1.5 Flash** via the `google-generativeai` SDK.
+- Service file: `services/gemini_service.py`
+- Model: `gemini-1.5-flash`
+- Env var: `GOOGLE_API_KEY`
+
