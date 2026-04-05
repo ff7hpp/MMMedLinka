@@ -1,6 +1,9 @@
 import os
 from aiosmtplib import send
 from email.message import EmailMessage
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BREVO_SMTP_KEY = os.getenv("BREVO_SMTP_KEY")
 BREVO_SENDER_EMAIL = os.getenv("BREVO_SENDER_EMAIL")
