@@ -1321,6 +1321,8 @@ const remindersData = [
 // ══════════════════════════════════════
 let lang = 'en';
 let currentUser = null;
+let currentToken = null;
+const BASE_URL = 'http://127.0.0.1:8000/api';
 let pendingAI = null;
 let cart = [];
 let selectedDoc = null;
@@ -1346,7 +1348,7 @@ function setLang(l) {
   if (currentUser) {
     renderHomeDoctors();
     renderHomeMeds();
-    renderDoctorsList(doctorsData);
+    fetchDoctors('all');
     renderDocFilters();
     renderMedGrid(medsData);
     renderMedFilters();
@@ -1379,7 +1381,7 @@ function goScreen(id) {
   
   // Initialize screen content
   if (id === 'screen-chat') initChat();
-  if (id === 'screen-doctors') { renderDocFilters(); renderDoctorsList(doctorsData); }
+  if (id === 'screen-doctors') { renderDocFilters(); fetchDoctors('all'); }
   if (id === 'screen-pharmacy') { renderMedFilters(); renderMedGrid(medsData); updateCartBar(); }
   if (id === 'screen-reminders') renderReminderList();
 }
@@ -1528,7 +1530,7 @@ function sendChip(el) {
   document.getElementById('chipsRow').style.display = 'none';
 }
 
-function sendMsg() {
+async function sendMsg() {
   const inp = document.getElementById('chatInput');
   const msg = inp.value.trim();
   if (!msg) return;
@@ -1537,10 +1539,24 @@ function sendMsg() {
   document.getElementById('chipsRow').style.display = 'none';
   
   const typId = showTyping();
-  setTimeout(() => {
-    removeTyping(typId);
-    addBotMsg(getAIResp(msg));
-  }, 1000 + Math.random() * 800);
+  
+  try {
+      const res = await fetch(`${BASE_URL}/chat/send`, {
+          method: "POST",
+          headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${currentToken}`
+          },
+          body: JSON.stringify({ message: msg })
+      });
+      if (!res.ok) throw new Error("AI error");
+      const data = await res.json();
+      removeTyping(typId);
+      addBotMsg(data.reply);
+  } catch(err) {
+      removeTyping(typId);
+      addBotMsg("Sorry, the AI is unavailable right now.");
+  }
 }
 
 function getAIResp(msg) {
@@ -1592,6 +1608,23 @@ function renderDocFilters() {
   const filters = t('docFilters');
   document.getElementById('docFilters').innerHTML = filters.map((f,i) =>
     `<button class="f-btn${i===0?' active':''}" onclick="filterDocSpec(this,'${i===0?'All':doctorsData.filter((_,idx)=>idx<6).map(d=>d.filter)[i-1]||'All'}')">${f}</button>`).join('');
+}
+
+async function fetchDoctors(specialty = "all") {
+    try {
+        const query = specialty && specialty !== 'all' && specialty !== 'All' ? `?specialty=${specialty}` : '';
+        const res = await fetch(`${BASE_URL}/doctors${query}`, {
+            headers: { "Authorization": `Bearer ${currentToken}` }
+        });
+        const docs = await res.json();
+        const uiDocs = docs.map(d => ({
+            id: d.id, name: d.name, spec_en: d.specialty, spec_ar: d.specialty, spec_tr: d.specialty,
+            rating: d.rating, patients: '100+', exp: '10y', emoji: '👨‍⚕️', color: '#d4f5e9', filter: d.specialty
+        }));
+        renderDoctorsList(uiDocs);
+    } catch(e) {
+        console.error(e);
+    }
 }
 
 function renderDoctorsList(list) {
@@ -1659,6 +1692,25 @@ function renderMedFilters() {
   const types = ['All','Painkillers','Antibiotics','Vitamins','Herbal'];
   document.getElementById('medFilters').innerHTML = filters.map((f,i) =>
     `<button class="f-btn${i===0?' active':''}" onclick="filterMedType(this,'${types[i]}')">${f}</button>`).join('');
+}
+
+async function searchPharmacy(query) {
+    if (!query) query = "panadol";
+    try {
+        const res = await fetch(`${BASE_URL}/medicines/search?q=${query}`, {
+            headers: { "Authorization": `Bearer ${currentToken}` }
+        });
+        const meds = await res.json();
+        const uiMeds = meds.map((m, i) => ({
+            id: i + 1, emoji: '💊', name_en: m.brand_name || m.generic_name || 'Medicine',
+            name_ar: m.brand_name || 'Medicine', name_tr: m.brand_name || 'Medicine',
+            desc_en: (m.purpose || '').substring(0, 50),
+            price: `$${(Math.random()*10 + 5).toFixed(2)}`
+        }));
+        renderMedGrid(uiMeds);
+    } catch(e) {
+        console.error(e);
+    }
 }
 
 function renderMedGrid(list) {
@@ -1731,32 +1783,54 @@ function removeCart(id) {
 
 function closeCartSheet() { document.getElementById('cartSheet').classList.remove('open'); }
 
-function checkout() {
-  cart = [];
-  updateCartBar();
-  closeCartSheet();
-  renderMedGrid(medsData);
-  showToast(t('toastOrder'), 'success');
+async function checkout() {
+    if(cart.length === 0) return;
+    try {
+        const items = cart.map(c => ({ name: c.name_en, qty: c.qty, price: parseFloat(c.price.replace('$','')) }));
+        const res = await fetch(`${BASE_URL}/orders/place`, {
+            method: "POST",
+            headers: { 
+                "Content-Type": "application/json",
+                "Authorization": `Bearer ${currentToken}`
+            },
+            body: JSON.stringify({ items })
+        });
+        if(res.ok) {
+            cart = []; updateCartBar(); closeCartSheet();
+            showToast(t('toastOrder'), 'success');
+        }
+    } catch(e) {
+        console.error(e);
+        showToast("Error placing order", "warn");
+    }
 }
 
 // ══════════════════════════════════════
 // REMINDERS
 // ══════════════════════════════════════
-function renderReminderList() {
-  document.getElementById('reminderList').innerHTML = remindersData.map(r => `
-    <div class="rem-card">
-      <div class="rem-icon" style="background:${r.color}">${r.emoji}</div>
-      <div class="rem-info">
-        <div class="rem-name">${r.name}</div>
-        <div class="rem-detail">${r['detail_'+lang] || r.detail_en}</div>
-        <div class="rem-times">${r.times.map(t => `<span class="rem-time-chip">${t}</span>`).join('')}</div>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" ${r.active?'checked':''} onchange="toggleRem(${r.id},this)">
-        <span class="slider"></span>
-      </label>
-    </div>`).join('');
+async function fetchReminders() {
+    try {
+        const res = await fetch(`${BASE_URL}/reminders`, {
+            headers: { "Authorization": `Bearer ${currentToken}` }
+        });
+        const data = await res.json();
+        const container = document.getElementById('reminderList');
+        container.innerHTML = data.map(r => `
+            <div class="rem-card">
+              <div class="rem-icon" style="background:#e3f2fd">💊</div>
+              <div class="rem-info">
+                <div class="rem-name">${r.medicine}</div>
+                <div class="rem-detail">${r.dose} - ${r.frequency}</div>
+                <div class="rem-times"><span class="rem-time-chip">${r.time}</span></div>
+              </div>
+            </div>
+        `).join('');
+    } catch(e) {
+        console.error(e);
+    }
 }
+
+function renderReminderList() { fetchReminders(); }
 
 function toggleRem(id, cb) {
   const r = remindersData.find(r => r.id === id);
@@ -1770,17 +1844,28 @@ const newRemColors = ['#f0f4ff','#fff0f6','#f0fff4','#fffde7'];
 const newRemTimes = [['7:00 AM','7:00 PM'],['9:00 AM'],['8:00 AM','2:00 PM','9:00 PM']];
 let remCounter = 0;
 
-function addReminder() {
+async function addReminder() {
   const i = remCounter % newRemNames.length;
-  remindersData.push({
-    id: Date.now(), name: newRemNames[i],
-    detail_en:'Once daily', detail_ar:'مرة يومياً', detail_tr:'Günde bir kez',
-    times: newRemTimes[Math.floor(Math.random()*3)],
-    emoji: newRemEmojis[i], color: newRemColors[i], active: true
-  });
-  remCounter++;
-  renderReminderList();
-  showToast(t('toastRem'), 'success');
+  try {
+      const res = await fetch(`${BASE_URL}/reminders`, {
+          method: "POST",
+          headers: { 
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${currentToken}`
+          },
+          body: JSON.stringify({
+              medicine: newRemNames[i],
+              dose: '1 pill',
+              time: '08:00',
+              frequency: 'Once daily'
+          })
+      });
+      if (res.ok) {
+          remCounter++;
+          fetchReminders();
+          showToast(t('toastRem'), 'success');
+      }
+  } catch(e) {}
 }
 
 // ══════════════════════════════════════

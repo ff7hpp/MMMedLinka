@@ -51,6 +51,14 @@ class ReminderCreate(BaseModel):
     dose: str
     time: str
     frequency: str
+    active: Optional[bool] = None
+
+class ReminderUpdate(BaseModel):
+    medicine: Optional[str] = None
+    dose: Optional[str] = None
+    time: Optional[str] = None
+    frequency: Optional[str] = None
+    active: Optional[bool] = None
 
 class ReminderOut(BaseModel):
     id: int

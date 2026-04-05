@@ -28,17 +28,18 @@ def create_reminder(rem: schemas.ReminderCreate, current_user: models.User = Dep
     return new_rem
 
 @router.put("/{rem_id}", response_model=schemas.ReminderOut)
-def update_reminder(rem_id: int, rem: schemas.ReminderCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
+def update_reminder(rem_id: int, rem: schemas.ReminderUpdate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     existing = db.query(models.Reminder).filter(models.Reminder.id == rem_id).first()
     if not existing:
         raise HTTPException(status_code=404, detail="Reminder not found")
     if existing.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not authorized")
         
-    existing.medicine = rem.medicine
-    existing.dose = rem.dose
-    existing.time = rem.time
-    existing.frequency = rem.frequency
+    if rem.medicine is not None: existing.medicine = rem.medicine
+    if rem.dose is not None: existing.dose = rem.dose
+    if rem.time is not None: existing.time = rem.time
+    if rem.frequency is not None: existing.frequency = rem.frequency
+    if rem.active is not None: existing.active = rem.active
     db.commit()
     db.refresh(existing)
     return existing
