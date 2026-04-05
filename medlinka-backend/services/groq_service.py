@@ -27,7 +27,7 @@ async def get_groq_response(message: str, context: str = ""):
         "Content-Type": "application/json"
     }
 
-    async with httpx.AsyncClient() as client:
+    async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.post(GROQ_URL, headers=headers, json=payload)
         response.raise_for_status()
         data = response.json()

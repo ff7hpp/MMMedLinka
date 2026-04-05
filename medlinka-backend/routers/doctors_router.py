@@ -26,10 +26,9 @@ def seed_doctors(db: Session):
         db.bulk_insert_mappings(models.Doctor, sample_doctors)
         db.commit()
 
-@router.on_event("startup")
-def startup_event():
-    with Session(engine) as db:
-        seed_doctors(db)
+# Seed doctors on first run (called at module import time)
+with Session(engine) as _db:
+    seed_doctors(_db)
 
 @router.get("/doctors")
 def get_doctors(specialty: Optional[str] = None, db: Session = Depends(get_db)):

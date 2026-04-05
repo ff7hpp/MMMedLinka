@@ -19,7 +19,7 @@ async def search_medicines(q: str, db: Session = Depends(get_db)):
 @router.post("/orders/place", response_model=schemas.OrderOut)
 def place_order(order: schemas.OrderCreate, current_user: models.User = Depends(get_current_user), db: Session = Depends(get_db)):
     total = sum(item.price * item.qty for item in order.items)
-    items_json = json.dumps([item.dict() for item in order.items])
+    items_json = json.dumps([item.model_dump() for item in order.items])
     
     new_order = models.Order(
         user_id=current_user.id,

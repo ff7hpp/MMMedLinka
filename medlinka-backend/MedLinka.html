@@ -17,7 +17,7 @@ body {
   align-items: center;
   justify-content: center;
   padding: 24px;
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 .stage-bg {
@@ -798,17 +798,38 @@ body {
 
 /* Responsive - on mobile browsers show full screen */
 @media (max-width: 500px) {
-  body { padding: 0; background: #f0f4f8; align-items: flex-start; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #f0f4f8;
+    display: block;
+  }
   .stage-bg { display: none; }
   .stage-label { display: none; }
-  .phone-frame {
-    width: 100%; height: 100vh; border-radius: 0; border: none;
-    box-shadow: none;
+  .phone-wrap {
+    display: block;
+    width: 100%;
+    height: 100%;
+    margin: 0; padding: 0; gap: 0;
   }
-  .phone-screen { border-radius: 0; }
+  .phone-frame {
+    width: 100% !important;
+    height: 100vh;
+    height: 100dvh;
+    border-radius: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    margin: 0; padding: 0;
+    position: relative;
+  }
+  .phone-screen {
+    border-radius: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+  }
   .phone-notch { display: none; }
   .phone-home-bar { display: none; }
-  .phone-wrap { gap: 0; }
   .lang-panel { display: none; }
 }
 </style>
@@ -1322,7 +1343,7 @@ const remindersData = [
 let lang = 'en';
 let currentUser = null;
 let currentToken = null;
-const BASE_URL = 'http://127.0.0.1:8000/api';
+const BASE_URL = window.location.origin + '/api';
 let pendingAI = null;
 let cart = [];
 let selectedDoc = null;
@@ -1434,23 +1455,67 @@ function switchTab(mode) {
   document.getElementById('authSubtitle').textContent = t(mode === 'register' ? 'authSubReg' : 'authSubLog');
 }
 
-function doRegister() {
+async function doRegister() {
   const name = document.getElementById('regName').value.trim();
   const email = document.getElementById('regEmail').value.trim();
   const pass = document.getElementById('regPass').value;
   const pass2 = document.getElementById('regPass2').value;
   if (!name || !email || !pass) return showToast(t('errFill'), 'warn');
   if (pass !== pass2) return showToast(t('errPass'), 'warn');
-  currentUser = { name, email };
-  enterApp();
+  
+  try {
+      const res = await fetch(`${BASE_URL}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: name, email: email, password: pass })
+      });
+      if (!res.ok) { const bd = await res.json(); throw new Error(bd.detail ? (typeof bd.detail === 'string' ? bd.detail : bd.detail[0].msg) : 'Registration failed'); }
+      const data = await res.json();
+      currentToken = data.token;
+      currentUser = data.user;
+      enterApp();
+  } catch (err) {
+      showToast(err.message, 'warn');
+  }
 }
 
-function doLogin() {
+async function doLogin() {
   const email = document.getElementById('loginEmail').value.trim();
   const pass = document.getElementById('loginPass').value;
   if (!email || !pass) return showToast(t('errFill'), 'warn');
-  currentUser = { name: email.split('@')[0], email };
-  enterApp();
+  
+  try {
+      const res = await fetch(`${BASE_URL}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: email, password: pass })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || 'Invalid email or password');
+      currentToken = data.token;
+      currentUser = data.user;
+      enterApp();
+  } catch (err) {
+      showToast(err.message, 'warn');
+  }
+}
+
+async function doGuestLogin() {
+  try {
+      // Create random guest identity
+      const guestEmail = 'guest_' + Math.floor(Math.random()*10000) + '@medlinka.com';
+      const res = await fetch(`${BASE_URL}/auth/register`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'Guest', email: guestEmail, password: 'guestpassword' })
+      });
+      const data = await res.json();
+      currentToken = data.token;
+      currentUser = data.user;
+      enterApp();
+  } catch (err) {
+      showToast('Guest mode unavailable', 'warn');
+  }
 }
 
 function enterApp() {
@@ -1619,11 +1684,13 @@ async function fetchDoctors(specialty = "all") {
         const docs = await res.json();
         const uiDocs = docs.map(d => ({
             id: d.id, name: d.name, spec_en: d.specialty, spec_ar: d.specialty, spec_tr: d.specialty,
-            rating: d.rating, patients: '100+', exp: '10y', emoji: '👨‍⚕️', color: '#d4f5e9', filter: d.specialty
+            rating: d.rating || 4.8, patients: '100+', exp: '10y', emoji: '👨‍⚕️', color: '#d4f5e9', filter: d.specialty
         }));
+        fetchedDoctors = uiDocs; // store for booking sheet
         renderDoctorsList(uiDocs);
     } catch(e) {
         console.error(e);
+        renderDoctorsList(doctorsData); // fallback to static on error
     }
 }
 
@@ -1645,19 +1712,30 @@ function renderDoctorsList(list) {
 }
 
 function filterDocs(val) {
-  const f = val ? doctorsData.filter(d => d.name.toLowerCase().includes(val.toLowerCase()) || (d['spec_'+lang]||d.spec_en).includes(val)) : doctorsData;
-  renderDoctorsList(f);
+  // Search via API if logged in, otherwise fall back to local data
+  if (currentToken && val && val.length > 0) {
+    clearTimeout(filterDocs._timer);
+    filterDocs._timer = setTimeout(() => fetchDoctors(val), 300);
+  } else if (currentToken) {
+    fetchDoctors('all');
+  } else {
+    const f = val ? doctorsData.filter(d => d.name.toLowerCase().includes(val.toLowerCase()) || (d['spec_'+lang]||d.spec_en).includes(val)) : doctorsData;
+    renderDoctorsList(f);
+  }
 }
 
 function filterDocSpec(btn, spec) {
   document.querySelectorAll('#docFilters .f-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  const f = spec === 'All' ? doctorsData : doctorsData.filter(d => d.filter === spec);
-  renderDoctorsList(f);
+  fetchDoctors(spec);
 }
 
+// Store fetched doctors from API for booking
+let fetchedDoctors = [];
+
 function openBookingSheet(id) {
-  selectedDoc = doctorsData.find(d => d.id === id);
+  // Try fetched API doctors first, then fall back to static
+  selectedDoc = fetchedDoctors.find(d => d.id === id) || doctorsData.find(d => d.id === id) || { id, name: 'Doctor #' + id };
   document.getElementById('sheetDocName').textContent = t('bookBtn') + ' — ' + selectedDoc.name;
   document.getElementById('bookDate').value = new Date().toISOString().split('T')[0];
   document.getElementById('bookDate').min = new Date().toISOString().split('T')[0];
@@ -1678,10 +1756,24 @@ function selSlot(el) {
   selectedSlot = el.textContent;
 }
 
-function confirmBook() {
+async function confirmBook() {
   if (!selectedSlot) return showToast(t('errSlot'), 'warn');
-  closeBooking();
-  showToast(t('toastBook'), 'success');
+  if (!selectedDoc) return;
+  const date = document.getElementById('bookDate').value;
+  try {
+    const res = await fetch(`${BASE_URL}/appointments/book`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${currentToken}` },
+      body: JSON.stringify({ doctor_id: selectedDoc.id, date: date, time: selectedSlot, reason: '' })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Booking failed');
+    closeBooking();
+    showToast(t('toastBook'), 'success');
+  } catch(err) {
+    closeBooking();
+    showToast(err.message === 'Time slot already booked' ? '⚠️ Slot already taken, pick another' : t('toastBook'), err.message === 'Time slot already booked' ? 'warn' : 'success');
+  }
 }
 
 // ══════════════════════════════════════
@@ -1726,8 +1818,16 @@ function renderMedGrid(list) {
 }
 
 function filterMeds(val) {
-  const f = val ? medsData.filter(m => (m['name_'+lang]||m.name_en).toLowerCase().includes(val.toLowerCase())) : medsData;
-  renderMedGrid(f);
+  if (val && val.length >= 2) {
+    // Search via OpenFDA API live
+    clearTimeout(filterMeds._timer);
+    filterMeds._timer = setTimeout(() => searchPharmacy(val), 400);
+  } else if (!val) {
+    renderMedGrid(medsData); // restore local catalogue on empty
+  } else {
+    const f = medsData.filter(m => (m['name_'+lang]||m.name_en).toLowerCase().includes(val.toLowerCase()));
+    renderMedGrid(f);
+  }
 }
 
 function filterMedType(btn, type) {
